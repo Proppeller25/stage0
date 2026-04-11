@@ -25,8 +25,8 @@ A simple Express.js API that predicts the gender of a given first name using the
 ### 1. Clone or create the project folder
 
 ```bash
-mkdir gender-api
-cd gender-api
+mkdir gender-API
+cd gender-API
 ```
 
 ### 2. Initialize a Node.js project
