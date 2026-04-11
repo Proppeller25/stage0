@@ -1,9 +1,6 @@
-Here’s a complete **README.md** file you can copy directly into your project. It explains the project, how to run it locally, how to deploy to Vercel, and how to use the API.
-
-```markdown
 # Gender Classification API
 
-A simple Express.js API that predicts the gender of a given first name using the [Genderize.io](https://genderize.io) service. The API is optimized for deployment on **Vercel** as a serverless function, but can also run locally.
+A simple Express.js API that predicts the gender of a given first name using the [Genderize.io](https://api.genderize.io) service. The API is optimized for deployment on **Vercel** as a serverless function, but can also run locally.
 
 ## Features
 
@@ -234,5 +231,5 @@ MIT – free to use and modify.
 
 ## Author
 
-Created by [Your Name].  
+Created by Tamarauemomoemi Egbebo Github: @Proppeller.  
 For questions or contributions, open an issue on the GitHub repository.
