@@ -1,7 +1,7 @@
 const express = require('express')
 const cors = require('cors')
 const app = express()
-const port = 3000
+const PORT = 3000
 
 app.use(cors())
 
@@ -16,8 +16,9 @@ app.get('/', (req, res) => {
 app.get('/api/classify', async (req, res) => {
   try {
     const {name} = req.query
-
-    if (!name) 
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    
+    if (!name  || name.trim().length === 0 || name === "''") 
       return res.status(400).json({status: "error", message: "Missing or empty name parameter"})
     
     if (typeof name !== "string")
@@ -29,7 +30,7 @@ app.get('/api/classify', async (req, res) => {
       {
         method: "GET",
       },
-    );
+    )
     const apiData = await apiRes.json()
     
     const response = {
@@ -44,7 +45,6 @@ app.get('/api/classify', async (req, res) => {
     
     if (!apiData.gender || !apiData.count) return res.status(404).json({status: "error", message: "No apiData or prediction available for the provided name"})
 
-    res.setHeader('Access-Control-Allow-Origin', '*')
     
     res.status(200).json({
       status: "success",
@@ -60,6 +60,6 @@ app.get('/api/classify', async (req, res) => {
 
 })
 
-app.listen(port, () => console.log(`Server is running on http://localhost:${port}`))
+app.listen(PORT, () => console.log(`Server is running on http://localhost:${PORT}`))
 
 module.exports = app
