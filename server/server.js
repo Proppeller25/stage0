@@ -33,7 +33,7 @@ app.get('/api/classify', async (req, res) => {
     const apiData = await apiRes.json()
     
     if (!apiData.gender || !apiData.count) 
-      return res.status(404).json({ status: "error", message: "No apiData or prediction available for the provided name" })
+      return res.json({ status: "error", message: "No apiData or prediction available for the provided name" })
     
     const UTCDate = new Date().toISOString()
 
