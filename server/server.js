@@ -4,8 +4,61 @@ const cors = require('cors')
 const app = express()
 const PORT = process.env.PORT || 3000
 require('dotenv').config()
-const Data = require('./models/dataModel')
+const importedDataModel = require('./models/dataModel')
 let connectionPromise = null
+
+const createDataModel = () => {
+  const dataSchema = new mongoose.Schema(
+    {
+      _id: {
+        type: String,
+        default: () => crypto.randomUUID(),
+      },
+      name: {
+        type: String,
+        required: true,
+        unique: true,
+      },
+      gender: {
+        type: String,
+        required: true,
+      },
+      gender_probability: {
+        type: Number,
+        required: true,
+      },
+      sample_size: {
+        type: Number,
+        required: true,
+      },
+      age: {
+        type: Number,
+        required: true,
+      },
+      age_group: {
+        type: String,
+        required: true,
+      },
+      country_id: {
+        type: String,
+        required: true,
+      },
+      country_probability: {
+        type: Number,
+        required: true,
+      },
+    },
+    {
+      timestamps: true,
+    }
+  )
+
+  return mongoose.models.Data || mongoose.model('Data', dataSchema)
+}
+
+const Data = typeof importedDataModel?.findOne === 'function'
+  ? importedDataModel
+  : createDataModel()
 
 app.use(cors())
 
@@ -58,6 +111,28 @@ app.get('/', (req, res) => {
   res.json({ message: 'Hello from the server!' })
 })
 
+app.get('/api/debug-model', async (req, res) => {
+  try {
+    res.status(200).json({
+      status: 'success',
+      debug: {
+        dataType: typeof Data,
+        modelName: Data?.modelName || null,
+        hasFindOne: typeof Data?.findOne,
+        hasCreate: typeof Data?.create,
+        keys: Object.getOwnPropertyNames(Data || {}).slice(0, 20),
+        mongooseReadyState: mongoose.connection.readyState,
+        environment: process.env.ENVIRONMENT || null
+      }
+    })
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    })
+  }
+})
+
 
 app.get('/api/classify', async (req, res) => {
 
@@ -105,7 +180,7 @@ app.get('/api/classify', async (req, res) => {
 
 app.post('/api/profiles', async(req, res) => {
   try{
-    const {name} = req.query
+    const {name} = req.body
 
     await connectDB()
     
@@ -119,6 +194,7 @@ app.post('/api/profiles', async(req, res) => {
     const ageData = await (await fetch(`https://api.agify.io?name=${encodeURIComponent(name)}`)).json()
     const countryData = await (await fetch(`https://api.nationalize.io?name=${encodeURIComponent(name)}`)).json()
 
+    if(!genderData || !ageData || !countryData) return res.status(502).json({status: "error", message: "external API returned an error"})
     
 
     if (!genderData.gender || !genderData.count) 
@@ -140,9 +216,25 @@ app.post('/api/profiles', async(req, res) => {
       age:ageData.age,
       age_group: classifyAge(ageData.age),
       country_id: highestProbabilityCountry.country_id,
-      country_probability: highestProbabilityCountry.probability
+      country_probability: highestProbabilityCountry.probability.toFixed(4)
     }
     
+    if (typeof Data?.findOne !== 'function') {
+      return res.status(500).json({
+        status: "error",
+        message: "Data.findOne is not a function",
+        debug: {
+          dataType: typeof Data,
+          modelName: Data?.modelName || null,
+          hasFindOne: typeof Data?.findOne,
+          hasCreate: typeof Data?.create,
+          keys: Object.getOwnPropertyNames(Data || {}).slice(0, 20),
+          mongooseReadyState: mongoose.connection.readyState,
+          environment: process.env.ENVIRONMENT || null
+        }
+      })
+    }
+
     const existingData = await Data.findOne({name})
     
     if(existingData)
@@ -153,7 +245,7 @@ app.post('/api/profiles', async(req, res) => {
     await savedData.save()
     
     
-    res.status(200).json({
+    res.status(201).json({
       status: "success",
       data: savedData
     })
@@ -162,6 +254,72 @@ app.post('/api/profiles', async(req, res) => {
     res.status(500).json({
       status: "error",
       message: error.message || "Server Error"
+    })
+  }
+})
+
+app.get('/api/profiles/:id', async (req, res) => {
+  try{
+    const {id} = req.params
+
+    const foundData = await Data.findById(id)
+    
+    if (!id) return res.status(400).json({status: "error", message: "Id is required"})
+
+    if(!foundData) return res.status(404).json({status: "error", message: "No record found for this Id"})
+
+    res.status(200).json({
+      status: "success",
+      data: foundData
+    })
+
+  } catch(error) {
+    return res.status(500).json({
+      status: "error",
+      message: error.message || "Upstream or Server Failure"
+    })
+  }
+})
+
+app.get('/api/profiles', async (req, res) => {
+  try{
+    const {gender, country, country_id} = req.query
+    let foundData 
+    if (gender || country || country_id) foundData = await Data.find({gender, country, country_id})
+    else foundData = await Data.find()
+    
+
+    if(!foundData) return res.status(404).json({status: "error", message: "No record found for this Id"})
+
+    res.status(200).json({
+      status: "success",
+      data: foundData
+    })
+
+  } catch(error) {
+    return res.status(500).json({
+      status: "error",
+      message: error.message || "Upstream or Server Failure"
+    })
+  }
+})
+
+app.delete('/api/profiles/:id', async (req, res) => {
+  try{
+    const {id} = req.params
+
+    const deletedData = await Data.findByIdAndDelete(id) 
+
+    if(!deletedData) return res.status(404).json({status: "error", message: "No record found for this Id"})
+
+    res.status(204).json({
+      status: "success"
+    })
+
+  } catch(error) {
+    return res.status(500).json({
+      status: "error",
+      message: error.message || "Upstream or Server Failure"
     })
   }
 })

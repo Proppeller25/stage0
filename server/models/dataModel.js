@@ -45,4 +45,4 @@ const dataModel = new mongoose.Schema({
 }
 )
 console.log('✅ Data model loaded');
-module.exports = mongoose.models.Data || mongoose.model('Data', dataModel)
+module.exports = mongoose.model('Data', dataModel)
