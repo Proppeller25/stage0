@@ -1,4 +1,3 @@
-const { required } = require('joi')
 const mongoose = require('mongoose')
 const { v7: uuidv7 } = require('uuid')
 
@@ -45,5 +44,5 @@ const dataModel = new mongoose.Schema({
   timestamps: true
 }
 )
-
-module.exports = mongoose.model('Data', dataModel)
+console.log('✅ Data model loaded');
+module.exports = mongoose.models.Data || mongoose.model('Data', dataModel)

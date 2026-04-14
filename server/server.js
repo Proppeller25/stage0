@@ -5,12 +5,15 @@ const app = express()
 const PORT = process.env.PORT || 3000
 require('dotenv').config()
 const Data = require('./models/dataModel')
+let connectionPromise = null
 
 app.use(cors())
 
 cors({
   accessControlAllowOrigin: '*',
 })
+
+
 
 /// utility functions
 const classifyAge = (age) => {
@@ -27,6 +30,28 @@ const classifyAge = (age) => {
 const getHighestProbability = (data) => {
   data.sort((a, b) => b.probability - a.probability)
   return data[0]
+}
+
+const connectDB = async () => {
+  if (!process.env.MONGODB_URI) {
+    throw new Error('MONGODB_URI is not set')
+  }
+
+  if (mongoose.connection.readyState === 1) {
+    return mongoose.connection
+  }
+
+  if (!connectionPromise) {
+    connectionPromise = mongoose.connect(process.env.MONGODB_URI)
+  }
+
+  try {
+    await connectionPromise
+    return mongoose.connection
+  } catch (error) {
+    connectionPromise = null
+    throw error
+  }
 }
 ////////
 app.get('/', (req, res) => {
@@ -81,6 +106,8 @@ app.get('/api/classify', async (req, res) => {
 app.post('/api/profiles', async(req, res) => {
   try{
     const {name} = req.query
+
+    await connectDB()
     
     if (!name || name.trim().length === 0 || name === "''") 
       return res.status(400).json({ status: "error", message: "Missing or empty name parameter" })
@@ -94,6 +121,17 @@ app.post('/api/profiles', async(req, res) => {
 
     
 
+    if (!genderData.gender || !genderData.count) 
+      return res.json({ status: "error", message: "No gender prediction available for the provided name" })
+    
+    if (!ageData.age) 
+      return res.json({ status: "error", message: "No age prediction available for the provided name" })
+
+    if (!countryData.country || countryData.country.length === 0) 
+      return res.json({ status: "error", message: "No country data available for the provided name" })
+
+    const highestProbabilityCountry = getHighestProbability(countryData.country)
+
     const compiledData = {
       name,
       gender:genderData.gender,
@@ -101,18 +139,9 @@ app.post('/api/profiles', async(req, res) => {
       sample_size:genderData.count,
       age:ageData.age,
       age_group: classifyAge(ageData.age),
-      country_id: getHighestProbability(countryData.country).country_id,
-      country_probability: getHighestProbability(countryData.country).probability
+      country_id: highestProbabilityCountry.country_id,
+      country_probability: highestProbabilityCountry.probability
     }
-
-    if (!genderData.gender || !genderData.count) 
-      return res.json({ status: "error", message: "No gender prediction available for the provided name" })
-    
-    if (!ageData.age) 
-      return res.json({ status: "error", message: "No age prediction available for the provided name" })
-
-    if (!countryData.country) 
-      return res.json({ status: "error", message: "No country data available for the provided name" })
     
     const existingData = await Data.findOne({name})
     
@@ -137,17 +166,16 @@ app.post('/api/profiles', async(req, res) => {
   }
 })
 
-
-
-mongoose.connect(process.env.MONGODB_URI)
-.then(()=> {
-  
-  console.log('Connected to database')
-
-  if (process.env.ENVIRONMENT !== 'production') {
+if (process.env.ENVIRONMENT !== 'production') {
+  connectDB()
+  .then(() => {
+    console.log('Connected to database')
     app.listen(PORT, () => console.log(`Local server running on port ${PORT}`))
-  }  
-})
+  })
+  .catch((error) => {
+    console.error('Database connection failed:', error.message)
+  })
+}
 
 
 module.exports = app
