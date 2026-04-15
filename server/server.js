@@ -1,18 +1,36 @@
 const express = require('express')
 const mongoose = require('mongoose')
 const cors = require('cors')
+const crypto = require('crypto')
 const app = express()
 const PORT = process.env.PORT || 3000
 require('dotenv').config()
 const importedDataModel = require('./models/dataModel')
 let connectionPromise = null
 
+const uuidv7 = () => {
+  const bytes = crypto.randomBytes(16)
+  const time = BigInt(Date.now())
+
+  bytes[0] = Number((time >> 40n) & 0xffn)
+  bytes[1] = Number((time >> 32n) & 0xffn)
+  bytes[2] = Number((time >> 24n) & 0xffn)
+  bytes[3] = Number((time >> 16n) & 0xffn)
+  bytes[4] = Number((time >> 8n) & 0xffn)
+  bytes[5] = Number(time & 0xffn)
+  bytes[6] = (0x70 | (bytes[6] & 0x0f))
+  bytes[8] = (0x80 | (bytes[8] & 0x3f))
+
+  const hex = bytes.toString('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 const createDataModel = () => {
   const dataSchema = new mongoose.Schema(
     {
-      _id: {
+      id: {
         type: String,
-        default: () => crypto.randomUUID(),
+        default: uuidv7,
       },
       name: {
         type: String,
@@ -49,7 +67,10 @@ const createDataModel = () => {
       },
     },
     {
-      timestamps: true,
+      timestamps: {
+        createdAt: 'created_at',
+        updatedAt: 'updated_at'
+      },
     }
   )
 
@@ -61,10 +82,7 @@ const Data = typeof importedDataModel?.findOne === 'function'
   : createDataModel()
 
 app.use(cors())
-
-cors({
-  accessControlAllowOrigin: '*',
-})
+app.use(express.json())
 
 
 
@@ -106,37 +124,44 @@ const connectDB = async () => {
     throw error
   }
 }
-////////
-app.get('/', (req, res) => {
-  res.json({ message: 'Hello from the server!' })
+const formatProfile = (profile) => ({
+  id: profile.id,
+  name: profile.name,
+  gender: profile.gender,
+  gender_probability: profile.gender_probability,
+  sample_size: profile.sample_size,
+  age: profile.age,
+  age_group: profile.age_group,
+  country_id: profile.country_id,
+  country_probability: profile.country_probability,
+  created_at: new Date(profile.created_at).toISOString()
 })
 
-app.get('/api/debug-model', async (req, res) => {
-  try {
-    res.status(200).json({
-      status: 'success',
-      debug: {
-        dataType: typeof Data,
-        modelName: Data?.modelName || null,
-        hasFindOne: typeof Data?.findOne,
-        hasCreate: typeof Data?.create,
-        keys: Object.getOwnPropertyNames(Data || {}).slice(0, 20),
-        mongooseReadyState: mongoose.connection.readyState,
-        environment: process.env.ENVIRONMENT || null
-      }
-    })
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: error.message
-    })
-  }
+const formatProfileSummary = (profile) => ({
+  id: profile.id,
+  name: profile.name,
+  gender: profile.gender,
+  age: profile.age,
+  age_group: profile.age_group,
+  country_id: profile.country_id
+})
+
+const invalidExternalResponse = (res, externalApi) => (
+  res.status(502).json({
+    status: 'error',
+    message: `${externalApi} returned an invalid response`
+  })
+)
+
+app.get('/', (req, res) => {
+  res.json({ message: 'Hello from the server!' })
 })
 
 
 app.get('/api/classify', async (req, res) => {
 
   try {
+    await connectDB()
     const { name } = req.query
     res.setHeader('Access-Control-Allow-Origin', '*')
 
@@ -180,65 +205,57 @@ app.get('/api/classify', async (req, res) => {
 
 app.post('/api/profiles', async(req, res) => {
   try{
-    const {name} = req.body
-
     await connectDB()
+    const {name} = req.body || {}
+    res.setHeader('Access-Control-Allow-Origin', '*')
     
-    if (!name || name.trim().length === 0 || name === "''") 
-      return res.status(400).json({ status: "error", message: "Missing or empty name parameter" })
+    if (name === undefined || name === null || (typeof name === "string" && name.trim().length === 0 || name === "''")) 
+      return res.status(400).json({ status: "error", message: "Missing or empty name" })
 
     if (typeof name !== "string")
-      return res.status(422).json({ status: "error", message: "Name is not a string" })
+      return res.status(422).json({ status: "error", message: "Invalid type" })
 
-    const genderData = await (await fetch(`https://api.genderize.io?name=${encodeURIComponent(name)}`)).json()
-    const ageData = await (await fetch(`https://api.agify.io?name=${encodeURIComponent(name)}`)).json()
-    const countryData = await (await fetch(`https://api.nationalize.io?name=${encodeURIComponent(name)}`)).json()
+    const normalizedName = name.trim().toLowerCase()
 
-    if(!genderData || !ageData || !countryData) return res.status(502).json({status: "error", message: "external API returned an error"})
+    const genderResponse = await fetch(`https://api.genderize.io?name=${encodeURIComponent(normalizedName)}`)
+    const ageResponse = await fetch(`https://api.agify.io?name=${encodeURIComponent(normalizedName)}`)
+    const countryResponse = await fetch(`https://api.nationalize.io?name=${encodeURIComponent(normalizedName)}`)
+
+    if (!genderResponse.ok) return invalidExternalResponse(res, 'Genderize')
+    if (!ageResponse.ok) return invalidExternalResponse(res, 'Agify')
+    if (!countryResponse.ok) return invalidExternalResponse(res, 'Nationalize')
+
+    const genderData = await genderResponse.json()
+    const ageData = await ageResponse.json()
+    const countryData = await countryResponse.json()
     
 
-    if (!genderData.gender || !genderData.count) 
-      return res.json({ status: "error", message: "No gender prediction available for the provided name" })
+    if (genderData.gender == null || genderData.count === 0) 
+      return invalidExternalResponse(res, 'Genderize')
     
-    if (!ageData.age) 
-      return res.json({ status: "error", message: "No age prediction available for the provided name" })
+    if (ageData.age == null) 
+      return invalidExternalResponse(res, 'Agify')
 
     if (!countryData.country || countryData.country.length === 0) 
-      return res.json({ status: "error", message: "No country data available for the provided name" })
+      return invalidExternalResponse(res, 'Nationalize')
 
     const highestProbabilityCountry = getHighestProbability(countryData.country)
 
     const compiledData = {
-      name,
+      name: normalizedName,
       gender:genderData.gender,
       gender_probability: genderData.probability,
       sample_size:genderData.count,
       age:ageData.age,
       age_group: classifyAge(ageData.age),
       country_id: highestProbabilityCountry.country_id,
-      country_probability: highestProbabilityCountry.probability.toFixed(4)
-    }
-    
-    if (typeof Data?.findOne !== 'function') {
-      return res.status(500).json({
-        status: "error",
-        message: "Data.findOne is not a function",
-        debug: {
-          dataType: typeof Data,
-          modelName: Data?.modelName || null,
-          hasFindOne: typeof Data?.findOne,
-          hasCreate: typeof Data?.create,
-          keys: Object.getOwnPropertyNames(Data || {}).slice(0, 20),
-          mongooseReadyState: mongoose.connection.readyState,
-          environment: process.env.ENVIRONMENT || null
-        }
-      })
+      country_probability: highestProbabilityCountry.probability
     }
 
-    const existingData = await Data.findOne({name})
+    const existingData = await Data.findOne({name: normalizedName})
     
     if(existingData)
-      return res.json({status:"success", message:"Profile already exists", data: existingData}) 
+      return res.status(200).json({status:"success", message:"Profile already exists", data: formatProfile(existingData)}) 
 
     const savedData = new Data (compiledData)
 
@@ -247,7 +264,7 @@ app.post('/api/profiles', async(req, res) => {
     
     res.status(201).json({
       status: "success",
-      data: savedData
+      data: formatProfile(savedData)
     })
 
   } catch (error) {
@@ -261,16 +278,16 @@ app.post('/api/profiles', async(req, res) => {
 app.get('/api/profiles/:id', async (req, res) => {
   try{
     const {id} = req.params
+    await connectDB()
+    res.setHeader('Access-Control-Allow-Origin', '*')
 
     const foundData = await Data.findById(id)
-    
-    if (!id) return res.status(400).json({status: "error", message: "Id is required"})
 
-    if(!foundData) return res.status(404).json({status: "error", message: "No record found for this Id"})
+    if(!foundData) return res.status(404).json({status: "error", message: "Profile not found"})
 
     res.status(200).json({
       status: "success",
-      data: foundData
+      data: formatProfile(foundData)
     })
 
   } catch(error) {
@@ -283,17 +300,21 @@ app.get('/api/profiles/:id', async (req, res) => {
 
 app.get('/api/profiles', async (req, res) => {
   try{
-    const {gender, country, country_id} = req.query
-    let foundData 
-    if (gender || country || country_id) foundData = await Data.find({gender, country, country_id})
-    else foundData = await Data.find()
-    
+    await connectDB()
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    const {gender, country_id, age_group} = req.query
+    const filters = {}
 
-    if(!foundData) return res.status(404).json({status: "error", message: "No record found for this Id"})
+    if (gender) filters.gender = { $regex: `^${gender.trim()}$`, $options: 'i' }
+    if (country_id) filters.country_id = { $regex: `^${country_id.trim()}$`, $options: 'i' }
+    if (age_group) filters.age_group = { $regex: `^${age_group.trim()}$`, $options: 'i' }
+
+    const foundData = await Data.find(filters)
 
     res.status(200).json({
       status: "success",
-      data: foundData
+      count: foundData.length,
+      data: foundData.map(formatProfileSummary)
     })
 
   } catch(error) {
@@ -307,14 +328,14 @@ app.get('/api/profiles', async (req, res) => {
 app.delete('/api/profiles/:id', async (req, res) => {
   try{
     const {id} = req.params
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    await connectDB()
 
     const deletedData = await Data.findByIdAndDelete(id) 
 
-    if(!deletedData) return res.status(404).json({status: "error", message: "No record found for this Id"})
+    if(!deletedData) return res.status(404).json({status: "error", message: "Profile not found"})
 
-    res.status(204).json({
-      status: "success"
-    })
+    res.status(204).send()
 
   } catch(error) {
     return res.status(500).json({
