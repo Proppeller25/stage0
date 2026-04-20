@@ -18,7 +18,7 @@ const uuidv7 = () => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-const dataModel = new mongoose.Schema({
+const profileModel = new mongoose.Schema({
   id: {
     type: String,      
     default: uuidv7
@@ -30,7 +30,8 @@ const dataModel = new mongoose.Schema({
   },
   gender: {
     type: String,
-    required: true
+    required: true,
+    enums: ['male', 'female']
   },
   gender_probability: {
     type: Number,
@@ -38,7 +39,7 @@ const dataModel = new mongoose.Schema({
   },
   sample_size:{
     type: Number,
-    required: true
+    required: false
   },
   age:{
     type: Number,
@@ -46,11 +47,16 @@ const dataModel = new mongoose.Schema({
   },
   age_group:{
     type: String,
-    required: true
+    required: true,
+    enums: ['child', 'teenager', 'adult', 'senior']
   },
   country_id:{
     type: String,
     required: true
+  },
+  country_name: {
+    type: String,
+    required: false
   },
   country_probability:{
     type: Number,
@@ -64,5 +70,5 @@ const dataModel = new mongoose.Schema({
   }
 }
 )
-console.log('✅ Data model loaded');
-module.exports = mongoose.models.Data || mongoose.model('Data', dataModel)
+console.log('✅ Profile model loaded')
+module.exports = mongoose.models.Profile || mongoose.model('Profile', profileModel)

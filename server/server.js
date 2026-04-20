@@ -4,8 +4,9 @@ const cors = require('cors')
 const crypto = require('crypto')
 const app = express()
 const PORT = process.env.PORT || 3000
+const json = require('./seed_profiles.json')
 require('dotenv').config()
-const importedDataModel = require('./models/dataModel')
+const importedDataModel = require('./models/profileModel')
 let connectionPromise = null
 
 const uuidv7 = () => {
@@ -40,6 +41,7 @@ const createDataModel = () => {
       gender: {
         type: String,
         required: true,
+        enums: ['male', 'female']
       },
       gender_probability: {
         type: Number,
@@ -47,7 +49,7 @@ const createDataModel = () => {
       },
       sample_size: {
         type: Number,
-        required: true,
+        required: false,
       },
       age: {
         type: Number,
@@ -56,10 +58,15 @@ const createDataModel = () => {
       age_group: {
         type: String,
         required: true,
+        enums: ['child', 'teenager', 'adult', 'senior']
       },
       country_id: {
         type: String,
         required: true,
+      },
+      country_name: {
+        type: String,
+        required: false
       },
       country_probability: {
         type: Number,
@@ -74,10 +81,10 @@ const createDataModel = () => {
     }
   )
 
-  return mongoose.models.Data || mongoose.model('Data', dataSchema)
+  return mongoose.models.Profile || mongoose.model('Profile', dataSchema)
 }
 
-const Data = typeof importedDataModel?.findOne === 'function'
+const Profile = typeof importedDataModel?.findOne === 'function'
   ? importedDataModel
   : createDataModel()
 
@@ -101,6 +108,11 @@ const classifyAge = (age) => {
 const getHighestProbability = (data) => {
   data.sort((a, b) => b.probability - a.probability)
   return data[0]
+}
+
+const getCountryFullName = (countryId) => {
+  const regionNames = new Intl.DisplayNames(['en'], { type: 'region' })
+  return regionNames.of(countryId)
 }
 
 const connectDB = async () => {
@@ -133,6 +145,7 @@ const formatProfile = (profile) => ({
   age: profile.age,
   age_group: profile.age_group,
   country_id: profile.country_id,
+  country_name: profile.country_name || getCountryFullName(profile.country_id),
   country_probability: profile.country_probability,
   created_at: new Date(profile.created_at).toISOString()
 })
@@ -249,15 +262,16 @@ app.post('/api/profiles', async(req, res) => {
       age:ageData.age,
       age_group: classifyAge(ageData.age),
       country_id: highestProbabilityCountry.country_id,
+      country_name: getCountryFullName(highestProbabilityCountry.country_id),
       country_probability: highestProbabilityCountry.probability
     }
 
-    const existingData = await Data.findOne({name: normalizedName})
+    const existingData = await Profile.findOne({name: normalizedName})
     
     if(existingData)
       return res.status(200).json({status:"success", message:"Profile already exists", data: formatProfile(existingData)}) 
 
-    const savedData = new Data (compiledData)
+    const savedData = new Profile (compiledData)
 
     await savedData.save()
     
@@ -281,7 +295,7 @@ app.get('/api/profiles/:id', async (req, res) => {
     await connectDB()
     res.setHeader('Access-Control-Allow-Origin', '*')
 
-    const foundData = await Data.findById(id)
+    const foundData = await Profile.findById(id)
 
     if(!foundData) return res.status(404).json({status: "error", message: "Profile not found"})
 
@@ -302,19 +316,61 @@ app.get('/api/profiles', async (req, res) => {
   try{
     await connectDB()
     res.setHeader('Access-Control-Allow-Origin', '*')
-    const {gender, country_id, age_group} = req.query
+    const {gender, country_id, age_group, min_age, max_age, min_gender_probability, min_country_probability, sort_by = 'created_at', order, page = 1, limit = 10} = req.query
     const filters = {}
+    let sortOrder
+    let sortQuery
+    let skip
+    const maxPaqeLimit = 50
+    const sortingOptions = ['created_at', 'age', 'gender_probability']
+    const orderOptions = ['asc', 'desc']
 
-    if (gender) filters.gender = { $regex: `^${gender.trim()}$`, $options: 'i' }
-    if (country_id) filters.country_id = { $regex: `^${country_id.trim()}$`, $options: 'i' }
-    if (age_group) filters.age_group = { $regex: `^${age_group.trim()}$`, $options: 'i' }
+    if (gender) {
+      filters.gender = gender.trim().toLowerCase()
+    }
+    if (country_id) {
+      filters.country_id = country_id.trim()
+    }
+    if (age_group) {
+      filters.age_group = age_group.trim().toLowerCase()
+    }
+    if (min_age) {
+      if (!filters.age) filters.age = {}
+      filters.age.$gte = Number(min_age)
+    }
+    if (max_age) {
+      if (!filters.age) filters.age = {}
+      filters.age.$lte = Number(max_age)
+    }
+    if (min_gender_probability) filters.gender_probability = { $gte: Number(min_gender_probability)}
+    if (min_country_probability) filters.country_probability = { $gte: Number(min_country_probability)}
 
-    const foundData = await Data.find(filters)
+    if (sort_by) {
+      if (!sortingOptions.includes(sort_by)) return res.status(400).json({status: "error", message: `Invalid sort_by value. Allowed values are: ${sortingOptions.join(', ')}`})
+      if (order && !orderOptions.includes(order)) return res.status(400).json({status: "error", message: `Invalid order value. Allowed values are: ${orderOptions.join(', ')}`})
+
+      sortOrder = order === 'desc' ? -1 : 1
+      sortQuery = { [sort_by]: sortOrder }
+    }
+    if (page && limit) {
+      const pageNumber = Number(page)
+      const limitNumber = Number(limit) > 50 ? maxPaqeLimit : Number(limit)
+      skip = (pageNumber - 1) * limitNumber
+    }
+    
+    
+
+    const foundData = await Profile.find(filters).sort(sortQuery).skip(skip || 0).limit(Number(limit) || 0)
+
+    if(!foundData || foundData.length === 0)
+      return res.status(404).json({status: "error", message: "No profiles found matching the criteria"})
 
     res.status(200).json({
       status: "success",
-      count: foundData.length,
-      data: foundData.map(formatProfileSummary)
+      page: Number(page) || 1,
+      limit: Number(limit) || foundData.length,
+      total: foundData.length,
+      data: foundData.map(formatProfile)
     })
 
   } catch(error) {
@@ -325,17 +381,18 @@ app.get('/api/profiles', async (req, res) => {
   }
 })
 
+
 app.delete('/api/profiles/:id', async (req, res) => {
   try{
     const {id} = req.params
     res.setHeader('Access-Control-Allow-Origin', '*')
     await connectDB()
 
-    const deletedData = await Data.findByIdAndDelete(id) 
+    const deletedData = await Profile.findByIdAndDelete(id) 
 
     if(!deletedData) return res.status(404).json({status: "error", message: "Profile not found"})
 
-    res.status(204).send()
+    return res.status(204).send()
 
   } catch(error) {
     return res.status(500).json({
@@ -355,6 +412,19 @@ if (process.env.ENVIRONMENT !== 'production') {
     console.error('Database connection failed:', error.message)
   })
 }
+
+const seedData = async () => {
+  try {
+    await connectDB()
+    await Profile.deleteMany({})
+    await Profile.insertMany(json)
+    console.log('Data seeded successfully')
+  } catch (error) {
+    console.error('Error seeding data:', error)
+  }
+}
+
+seedData()
 
 
 module.exports = app
