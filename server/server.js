@@ -495,7 +495,8 @@ app.get('/api/profiles/search', async (req, res) => {
     }
 
     if(hasFemale && hasMale) {
-      delete filters.gender
+      filters.gender = { $in: ['male', 'female'] }
+      hasAnyFilter = true
     }
     else if(hasMale) {
       filters.gender =  'male'
@@ -530,12 +531,12 @@ app.get('/api/profiles/search', async (req, res) => {
     }
 
     const foundData = await Profile.find(filters).skip(skip || 0).limit(maxLimit || 0)
-    const total = await Profile.countDocuments(filters)
+    const total = hasAnyFilter ? await Profile.countDocuments(filters) : foundData.length
 
     res.status(200).json({
       status: "success",
       page: Number(page) || 1,
-      limit: maxLimit || 10,
+      limit: maxLimit > total ? total : maxLimit || 10,
       total,
       data: foundData.map(formatProfile)
     })
@@ -631,8 +632,10 @@ const seedData = async () => {
 
   if (profilesToInsert.length > 0) {
     await Profile.insertMany(profilesToInsert)
-    console.log(`${profilesToInsert.length} profiles inserted`)
+    console.log(`${profilesToInsert.length} profiles inserted into database`)
+    return
   }
+  console.log('Database already seeded')
 }
 
 app.seedData = seedData
