@@ -1,7 +1,7 @@
 const express = require('express')
 const router = express.Router()
-const auth = require('../middleware/auth')
-const checkRole = require('../middleware/role')
+const rateLimit = require('../middleware/ratelimit')
+const { ensureCsrfSecret, verifyCsrfToken } = require('../middleware/csrf')
 const {
   redirectToGithub,
   githubCallback,
@@ -9,9 +9,18 @@ const {
   logout
 } = require('../controllers/userController')
 
-router.get('/auth/github', redirectToGithub)
+const authRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  message: 'Too many auth requests, please try again later.',
+  keyPrefix: 'auth'
+})
+
+router.use('/auth', authRateLimit)
+
+router.get('/auth/github', ensureCsrfSecret, redirectToGithub)
 router.get('/auth/github/callback', githubCallback)
-router.post('/auth/refresh', refreshToken)
-router.post('/auth/logout', logout)
+router.post('/auth/refresh', verifyCsrfToken, refreshToken)
+router.post('/auth/logout', verifyCsrfToken, logout)
 
 module.exports = router

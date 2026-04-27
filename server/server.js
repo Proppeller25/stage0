@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 3000
 let connectionPromise = null
 
 app.use(cors())
-app.use(cookieParser())
+app.use(cookieParser(process.env.COOKIE_SECRET || process.env.JWT_SECRET || 'insighta-cookie-secret'))
 app.use(express.json())
 
 const connectDB = async () => {

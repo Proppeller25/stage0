@@ -1,6 +1,7 @@
 const crypto = require('crypto')
 const jwt = require('jsonwebtoken')
 const User = require('../models/userModel')
+const { setCsrfCookies, clearCsrfCookies } = require('../middleware/csrf')
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET
@@ -305,6 +306,7 @@ const githubCallback = async (req, res) => {
     }
 
     setAuthCookies(res, accessToken, refreshToken)
+    setCsrfCookies(res)
     return res.redirect(WEB_SUCCESS_REDIRECT)
   } catch (error) {
     return res.status(500).json({
@@ -407,6 +409,7 @@ const logout = async (req, res) => {
     }
 
     clearAuthCookies(res)
+    clearCsrfCookies(res)
 
     return res.status(200).json({
       status: 'success',
