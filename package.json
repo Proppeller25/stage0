@@ -1,0 +1,13 @@
+{
+  "name": "insighta-cli",
+  "version": "1.0.0",
+  "description": "Insighta Labs CLI",
+  "bin": {
+    "insighta": "bin/insighta.js"
+  },
+  "type": "commonjs",
+  "scripts": {
+    "start": "node bin/insighta.js",
+    "dev": "node bin/insighta.js"
+  }
+}
