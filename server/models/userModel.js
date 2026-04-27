@@ -45,6 +45,12 @@ const userModel = new mongoose.Schema({
   avatar_url: {
     type: String,
   },
+  refresh_token: {
+    type: String
+  },
+  refresh_token_expires_at: {
+    type: Date
+  },
   role: {
     type: String,
     enum: ['admin', 'analyst'],
@@ -57,6 +63,7 @@ const userModel = new mongoose.Schema({
   },
   last_login_at: {
     type: Date,
+    default: Date.now
   }
 },
 {
@@ -66,3 +73,5 @@ const userModel = new mongoose.Schema({
   }
 }
 )
+
+module.exports = mongoose.models.User || mongoose.model('User', userModel)
