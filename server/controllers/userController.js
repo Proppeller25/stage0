@@ -2,6 +2,7 @@ const crypto = require('crypto')
 const jwt = require('jsonwebtoken')
 const User = require('../models/userModel')
 const { setCsrfCookies, clearCsrfCookies } = require('../middleware/csrf')
+require('dotenv').config()
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET
@@ -475,9 +476,47 @@ const logout = async (req, res) => {
   }
 }
 
+// CLI token-based authentication using GitHub PAT
+const cliLoginWithToken = async (req, res) => {
+  try {
+    ensureAuthConfig()
+
+    const { token } = req.body
+
+    if (!token) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'GitHub token is required'
+      })
+    }
+
+    // Validate the GitHub token by fetching user profile
+    const githubUser = await fetchGithubUserProfile(token)
+    const user = await findOrCreateUserFromGithub(githubUser)
+    const { accessToken, refreshToken } = await saveLoginSession(user)
+
+    return res.status(200).json({
+      status: 'success',
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email
+      }
+    })
+  } catch (error) {
+    return res.status(401).json({
+      status: 'error',
+      message: error.message || 'Invalid GitHub token'
+    })
+  }
+}
+
 module.exports = {
   redirectToGithub,
   githubCallback,
   refreshToken,
-  logout
+  logout,
+  cliLoginWithToken
 }

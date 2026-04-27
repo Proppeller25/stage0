@@ -6,7 +6,8 @@ const {
   redirectToGithub,
   githubCallback,
   refreshToken,
-  logout
+  logout,
+  cliLoginWithToken
 } = require('../controllers/userController')
 
 const authRateLimit = rateLimit({
@@ -22,5 +23,6 @@ router.get('/auth/github', ensureCsrfSecret, redirectToGithub)
 router.get('/auth/github/callback', githubCallback)
 router.post('/auth/refresh', verifyCsrfToken, refreshToken)
 router.post('/auth/logout', verifyCsrfToken, logout)
+router.post('/auth/cli/login', cliLoginWithToken)
 
 module.exports = router
