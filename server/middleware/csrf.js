@@ -16,6 +16,14 @@ const SECRET_COOKIE_NAME = 'csrfSecret'     // httpOnly, signed
 const TOKEN_COOKIE_NAME = 'XSRF-TOKEN'      // plain, readable by JS
 const TOKEN_HEADER_NAME = 'x-xsrf-token'    // header name frontend will use
 
+function isCookieBasedRequest(req) {
+  return Boolean(
+    req.cookies?.access_token ||
+    req.cookies?.refresh_token ||
+    req.signedCookies?.[SECRET_COOKIE_NAME]
+  )
+}
+
 // Generate both cookies (call this after login)
 function setCsrfCookies(res) {
   const secret = tokens.secretSync()               // generate a random secret
@@ -75,16 +83,21 @@ function verifyCsrfToken(req, res, next) {
     return next()
   }
 
+  // Only enforce CSRF for browser-style cookie auth flows.
+  if (!isCookieBasedRequest(req)) {
+    return next()
+  }
+
   const signedCookies = req.signedCookies || {}
   const secret = signedCookies[SECRET_COOKIE_NAME]
   const tokenFromHeader = req.headers[TOKEN_HEADER_NAME]
 
   if (!secret || !tokenFromHeader) {
-    return res.status(403).json({ success: false, message: 'CSRF tokens missing' })
+    return res.status(403).json({ status: 'error', message: 'CSRF tokens missing' })
   }
 
   if (!tokens.verify(secret, tokenFromHeader)) {
-    return res.status(403).json({ success: false, message: 'Invalid CSRF token' })
+    return res.status(403).json({ status: 'error', message: 'Invalid CSRF token' })
   }
   
   next()
@@ -96,5 +109,6 @@ module.exports = {
   setCsrfCookies,
   clearCsrfCookies,
   ensureCsrfSecret,
-  verifyCsrfToken
+  verifyCsrfToken,
+  isCookieBasedRequest
 }

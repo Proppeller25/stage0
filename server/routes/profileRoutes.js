@@ -1,5 +1,6 @@
 const express = require('express')
 const router = express.Router()
+
 const {registerProfile, getProfiles, searchProfiles, getProfileById, deleteProfileById, exportProfiles} = require ('../controllers/profileController')
 const auth = require('../middleware/auth')
 const checkRole = require('../middleware/role')

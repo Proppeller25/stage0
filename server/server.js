@@ -2,20 +2,39 @@ const express = require('express')
 const mongoose = require('mongoose')
 const cors = require('cors')
 const cookieParser = require('cookie-parser')
+const morgan = require('morgan')
+const fs = require('fs')
+const path = require('path')
+
+
 const Profile = require('./models/profileModel')
 const json = require('./seed_profiles.json')
 require('dotenv').config()
 
 const profileRoutes = require('./routes/profileRoutes')
 const userRoutes = require('./routes/userRoutes')
+const auth = require('./middleware/auth')
+const rateLimit = require('./middleware/ratelimit')
 
 const app = express()
 const PORT = process.env.PORT || 3000
 let connectionPromise = null
 
+const apiRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  message: 'Too many requests, please try again later.',
+  keyPrefix: 'api',
+  keyGenerator: (req) => req.user?.id || req.ip || 'unknown'
+})
+
 app.use(cors())
 app.use(cookieParser(process.env.COOKIE_SECRET || process.env.JWT_SECRET || 'insighta-cookie-secret'))
 app.use(express.json())
+
+const accessLogPath = path.join(__dirname, 'access.log')
+const accessLogStream = fs.createWriteStream(accessLogPath, { flags: 'a' })
+app.use(morgan('combined', { stream: accessLogStream }))
 
 const connectDB = async () => {
   if (!process.env.MONGODB_URI) {
@@ -43,7 +62,7 @@ app.get('/', (req, res) => {
   res.json({ message: 'Hello from the server!' })
 })
 
-app.get('/api/classify', async (req, res) => {
+app.get('/api/classify', auth, apiRateLimit, async (req, res) => {
   try {
     await connectDB()
 
