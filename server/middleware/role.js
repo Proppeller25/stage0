@@ -1,4 +1,3 @@
-// middleware/roleMiddleware.js
 const checkRole = (...allowedRoles) => {
   return (req, res, next) => {
     // 1. Ensure user is authenticated (req.user is typically set by auth middleware)

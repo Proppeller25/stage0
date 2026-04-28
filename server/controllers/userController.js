@@ -167,12 +167,12 @@ const buildGithubAuthorizeUrl = (state, codeChallenge) => {
   return url.toString()
 }
 
-const exchangeGithubCodeForToken = async (code, codeVerifier) => {
+const exchangeGithubCodeForToken = async (code, codeVerifier, redirectUri) => {
   const requestBody = {
     client_id: GITHUB_CLIENT_ID,
     client_secret: GITHUB_CLIENT_SECRET,
     code,
-    redirect_uri: GITHUB_REDIRECT_URI
+    redirect_uri: redirectUri || GITHUB_REDIRECT_URI
   }
 
   if (codeVerifier) {
@@ -288,8 +288,25 @@ const redirectToGithub = async (req, res) => {
     ensureAuthConfig()
 
     const mode = req.query.mode === 'cli' ? 'cli' : 'web'
-    const codeChallenge =
-      typeof req.query.code_challenge === 'string' ? req.query.code_challenge : ''
+    let codeChallenge = ''
+    let codeVerifier = ''
+
+    if (mode === 'web') {
+      // Generate PKCE verifier & challenge server-side for web
+      codeVerifier = crypto.randomBytes(32).toString('base64url')
+      const hash = crypto.createHash('sha256').update(codeVerifier).digest()
+      codeChallenge = hash.toString('base64url')
+      
+      // Store verifier in a signed, httpOnly cookie (valid for 10 minutes)
+      res.cookie('oauth_pkce_verifier', codeVerifier, {
+        ...getCookieOptions(),
+        signed: true,
+        maxAge: OAUTH_STATE_COOKIE_MAX_AGE
+      })
+    } else {
+      // CLI mode: accept code_challenge from query param (if provided)
+      codeChallenge = typeof req.query.code_challenge === 'string' ? req.query.code_challenge : ''
+    }
 
     const state = createStateValue(mode)
     const githubAuthorizeUrl = buildGithubAuthorizeUrl(state, codeChallenge)
@@ -297,14 +314,11 @@ const redirectToGithub = async (req, res) => {
     setOauthPendingCookie(res, {
       state,
       mode,
-      pkceRequired: mode === 'cli' && Boolean(codeChallenge)
+      pkceRequired: mode === 'cli' && Boolean(codeChallenge)   // only CLI may require verifier later
     })
     return res.redirect(githubAuthorizeUrl)
   } catch (error) {
-    return res.status(500).json({
-      status: 'error',
-      message: error.message || 'Server error'
-    })
+    return res.status(500).json({ status: 'error', message: error.message || 'Server error' })
   }
 }
 
@@ -314,37 +328,35 @@ const githubCallback = async (req, res) => {
 
     const code = req.query.code
     const state = req.query.state
-    const codeVerifier = req.query.code_verifier
 
-    if (!code) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Authorization code is missing'
-      })
-    }
-
-    const stateData = readStateValue(state)
+    // Read the pending login data from the cookie
     const pendingLogin = readOauthPendingCookie(req)
+    const stateData = readStateValue(state)
 
-    if (!stateData || !stateData.nonce) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Invalid or missing OAuth state'
-      })
+    if (!pendingLogin || !stateData) {
+      return res.status(400).json({ status: 'error', message: 'Invalid OAuth state' })
     }
 
-    if (!pendingLogin || pendingLogin.state !== state || pendingLogin.mode !== stateData.mode) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'OAuth state validation failed'
-      })
+    // Verify state matches
+    if (pendingLogin.state !== state) {
+      return res.status(400).json({ status: 'error', message: 'State mismatch' })
+    }
+
+    let codeVerifier = null
+
+    // Determine source of PKCE verifier based on mode
+    if (stateData.mode === 'web') {
+      // Web: read from signed cookie (set in redirectToGithub)
+      codeVerifier = req.signedCookies?.oauth_pkce_verifier
+      // Clear the cookie after use (one-time)
+      res.clearCookie('oauth_pkce_verifier', { ...getCookieOptions(), signed: true })
+    } else {
+      // CLI: get from query parameter
+      codeVerifier = req.query.code_verifier
     }
 
     if (pendingLogin.pkceRequired && !codeVerifier) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'PKCE code verifier is required for this login flow'
-      })
+      return res.status(400).json({ status: 'error', message: 'PKCE code verifier is required for this login flow' })
     }
 
     const githubAccessToken = await exchangeGithubCodeForToken(code, codeVerifier)
@@ -513,10 +525,34 @@ const cliLoginWithToken = async (req, res) => {
   }
 }
 
+const cliOAuthCallback = async (req, res) => {
+  try {
+    const { code, code_verifier, state, redirect_uri } = req.body
+    if (!code || !code_verifier) {
+      return res.status(400).json({ status: 'error', message: 'Missing code or code_verifier' })
+    }
+    const githubAccessToken = await exchangeGithubCodeForToken(code, code_verifier, redirect_uri)
+    const githubUser = await fetchGithubUserProfile(githubAccessToken)
+    const user = await findOrCreateUserFromGithub(githubUser)
+    const { accessToken, refreshToken } = await saveLoginSession(user)
+    res.status(200).json({
+      status: 'success',
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      user: { id: user._id, username: user.username, email: user.email, role: user.role }
+    })
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message })
+  }
+}
+
+
+
 module.exports = {
   redirectToGithub,
   githubCallback,
   refreshToken,
   logout,
-  cliLoginWithToken
+  cliLoginWithToken,
+  cliOAuthCallback
 }
