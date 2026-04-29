@@ -14,7 +14,7 @@ require('dotenv').config()
 const profileRoutes = require('./routes/profileRoutes')
 const userRoutes = require('./routes/userRoutes')
 const auth = require('./middleware/auth')
-const rateLimit = require('./middleware/ratelimit')
+const rateLimit = require('./middleware/rateLimit')
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -32,9 +32,19 @@ app.use(cors())
 app.use(cookieParser(process.env.COOKIE_SECRET || process.env.JWT_SECRET || 'insighta-cookie-secret'))
 app.use(express.json())
 
-const accessLogPath = path.join(__dirname, 'access.log')
-const accessLogStream = fs.createWriteStream(accessLogPath, { flags: 'a' })
-app.use(morgan('combined', { stream: accessLogStream }))
+const isProduction = process.env.NODE_ENV === 'production' || process.env.ENVIRONMENT === 'production'
+
+// Only use file logging in development (Vercel has read-only filesystem)
+let morganMiddleware
+if (!isProduction) {
+  const accessLogPath = path.join(__dirname, 'access.log')
+  const accessLogStream = fs.createWriteStream(accessLogPath, { flags: 'a' })
+  morganMiddleware = morgan('combined', { stream: accessLogStream })
+} else {
+  morganMiddleware = morgan('combined')
+}
+
+app.use(morganMiddleware)
 
 const connectDB = async () => {
   if (!process.env.MONGODB_URI) {
@@ -178,4 +188,5 @@ if (require.main === module && process.env.ENVIRONMENT !== 'production') {
 app.connectDB = connectDB
 app.seedData = seedData
 
+// Vercel serverless handler
 module.exports = app

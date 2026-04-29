@@ -1,6 +1,6 @@
 const express = require('express')
 const router = express.Router()
-const rateLimit = require('../middleware/ratelimit')
+const rateLimit = require('../middleware/rateLimit')
 const { ensureCsrfSecret, verifyCsrfToken } = require('../middleware/csrf')
 const {
   redirectToGithub,

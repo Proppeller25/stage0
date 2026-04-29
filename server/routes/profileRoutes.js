@@ -4,7 +4,7 @@ const router = express.Router()
 const {registerProfile, getProfiles, searchProfiles, getProfileById, deleteProfileById, exportProfiles} = require ('../controllers/profileController')
 const auth = require('../middleware/auth')
 const checkRole = require('../middleware/role')
-const rateLimit = require('../middleware/ratelimit')
+const rateLimit = require('../middleware/rateLimit')
 const { verifyCsrfToken } = require('../middleware/csrf')
 
 const API_VERSION = '1'
