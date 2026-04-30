@@ -133,15 +133,20 @@ app.get('/api/classify', auth, apiRateLimit, async (req, res) => {
   }
 })
 
-app.use('/api', async (req, res, next) => {
+const ensureDatabaseConnection = async (req, res, next) => {
   try {
     await connectDB()
     next()
   } catch (error) {
     next(error)
   }
-})
+}
 
+app.use('/auth', ensureDatabaseConnection)
+app.use('/users', ensureDatabaseConnection)
+app.use('/api', ensureDatabaseConnection)
+
+app.use('/', userRoutes)
 app.use('/api', profileRoutes)
 app.use('/api', userRoutes)
 // app.use('/api/v1', profileRoutes)
